@@ -7,6 +7,7 @@ class AuthService {
     required String email,
     required String password,
     required String username,
+    bool isAdmin = false,
   }) async {
     final response = await _client.auth.signUp(
       email: email.trim(),
@@ -30,7 +31,19 @@ class AuthService {
       'id': user.id,
       'username': username.trim(),
       'email': email.trim(),
+      'is_admin': isAdmin,
     });
+  }
+
+  Future<bool> isUserAdmin() async {
+    final user = currentUser;
+    if (user == null) return false;
+    try {
+      final data = await _client.from('profiles').select('is_admin').eq('id', user.id).single();
+      return data['is_admin'] == true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> signIn({
@@ -41,6 +54,23 @@ class AuthService {
       email: email.trim(),
       password: password.trim(),
     );
+  }
+
+  Future<void> deleteAccount() async {
+    final user = currentUser;
+    if (user == null) return;
+
+    try {
+      // Deletes the user profile from the database 
+      await _client.from('profiles').delete().eq('id', user.id);
+      
+      // Call a secure remote procedure (RPC) to delete the actual Auth User via Supbase if set up
+      await _client.rpc('delete_user');
+    } catch (e) {
+      // Ignore RPC error if not yet created in Supabase Dashboard
+    }
+    
+    await signOut();
   }
 
   Future<void> signOut() async {
