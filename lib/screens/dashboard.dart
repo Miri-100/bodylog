@@ -4,6 +4,7 @@ import 'package:bodylog/screens/profile.dart';
 import 'package:bodylog/screens/progress.dart';
 import 'package:bodylog/screens/settings.dart';
 import 'package:bodylog/screens/workout.dart';
+import 'package:bodylog/services/app_strings.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -101,7 +102,6 @@ class _DashboardPageState extends State<DashboardPage> {
     final todayStart = DateTime(now.year, now.month, now.day);
     final weekStart = todayStart.subtract(Duration(days: now.weekday - 1));
 
-    // PROFILES
     Map<String, dynamic>? profile;
     try {
       profile = await _client
@@ -124,7 +124,6 @@ class _DashboardPageState extends State<DashboardPage> {
       bmi = weightKg / (heightM * heightM);
     }
 
-    // WORKOUTS
     final workoutsRaw = await _client
         .from('workouts')
         .select()
@@ -168,11 +167,7 @@ class _DashboardPageState extends State<DashboardPage> {
       }
     }
 
-    // GOALS
-    final goalsRaw = await _client
-        .from('goals')
-        .select()
-        .eq('user_id', user.id);
+    final goalsRaw = await _client.from('goals').select().eq('user_id', user.id);
 
     final goals = List<Map<String, dynamic>>.from(goalsRaw);
 
@@ -182,20 +177,41 @@ class _DashboardPageState extends State<DashboardPage> {
     int progressCount = 0;
 
     for (final goal in goals) {
-      final status = (goal['status'] ?? '').toString().toLowerCase();
-
-      if (status == 'active') activeGoals++;
-      if (status == 'completed') completedGoals++;
-
+      final goalType = goal['goal_type']?.toString() ?? '';
       final target = _toDouble(goal['target_value']) ?? 0;
-      final current = _toDouble(goal['current_value']) ?? 0;
+
+      double current = 0;
+
+      if (goalType == 'workouts_per_week') {
+        current = workouts.length.toDouble();
+      } else if (goalType == 'calories_per_week') {
+        double totalCalories = 0;
+        for (final workout in workouts) {
+          totalCalories += _toDouble(workout['calories']) ?? 0;
+        }
+        current = totalCalories;
+      } else if (goalType == 'minutes_per_week') {
+        current = weeklyMinutes.toDouble();
+      } else if (goalType == 'weight_target') {
+        current = weightKg ?? 0;
+      }
 
       if (target > 0) {
         double progress = current / target;
         if (progress < 0) progress = 0;
         if (progress > 1) progress = 1;
+
         totalProgress += progress;
         progressCount++;
+
+        if (progress >= 1) {
+          completedGoals++;
+        } else {
+          final rawStatus = (goal['status'] ?? 'active').toString().toLowerCase();
+          if (rawStatus != 'paused') {
+            activeGoals++;
+          }
+        }
       }
     }
 
@@ -234,12 +250,12 @@ class _DashboardPageState extends State<DashboardPage> {
     return double.tryParse(value.toString());
   }
 
-  String _bmiCategory(double? bmi) {
-    if (bmi == null) return 'Not enough data';
-    if (bmi < 18.5) return 'Underweight';
-    if (bmi < 25) return 'Normal';
-    if (bmi < 30) return 'Overweight';
-    return 'Obese';
+  String _bmiCategory(BuildContext context, double? bmi) {
+    if (bmi == null) return AppStrings.text(context, 'not_enough_data');
+    if (bmi < 18.5) return AppStrings.text(context, 'underweight');
+    if (bmi < 25) return AppStrings.text(context, 'normal');
+    if (bmi < 30) return AppStrings.text(context, 'overweight');
+    return AppStrings.text(context, 'obese');
   }
 
   @override
@@ -315,9 +331,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                     ).then((_) => _refreshDashboard());
                                   },
                                 ),
-                                const Text(
-                                  'Dashboard',
-                                  style: TextStyle(
+                                Text(
+                                  AppStrings.text(context, 'dashboard'),
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 22,
                                     fontWeight: FontWeight.bold,
@@ -338,7 +354,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             ),
                             const SizedBox(height: 20),
                             Text(
-                              'Welcome back,',
+                              AppStrings.text(context, 'welcome_back'),
                               style: TextStyle(
                                 color: Colors.white.withOpacity(0.9),
                                 fontSize: 16,
@@ -354,25 +370,24 @@ class _DashboardPageState extends State<DashboardPage> {
                               ),
                             ),
                             const SizedBox(height: 20),
-
                             Container(
                               padding: const EdgeInsets.all(20),
                               decoration: _cardDecoration(),
                               child: Column(
                                 children: [
-                                  const Row(
+                                  Row(
                                     mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                     children: [
                                       Text(
-                                        'Today Overview',
-                                        style: TextStyle(
+                                        AppStrings.text(context, 'today_overview'),
+                                        style: const TextStyle(
                                           color: textDark,
                                           fontSize: 18,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                      Icon(
+                                      const Icon(
                                         Icons.calendar_today_rounded,
                                         color: primaryPurple,
                                         size: 20,
@@ -380,20 +395,18 @@ class _DashboardPageState extends State<DashboardPage> {
                                     ],
                                   ),
                                   const SizedBox(height: 20),
-                                  _buildMainSummary(data),
+                                  _buildMainSummary(context, data),
                                 ],
                               ),
                             ),
-
                             const SizedBox(height: 18),
-
                             Row(
                               children: [
                                 Expanded(
                                   child: _quickActionCard(
-                                    title: 'Progress',
+                                    title: AppStrings.text(context, 'progress'),
                                     subtitle:
-                                    '${data.completedGoals} goals completed',
+                                    '${data.completedGoals} ${AppStrings.text(context, 'goals_completed')}',
                                     icon: Icons.show_chart,
                                     iconColor: Colors.blue,
                                     onTap: () {
@@ -410,18 +423,20 @@ class _DashboardPageState extends State<DashboardPage> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: _quickActionCard(
-                                    title: 'Health',
+                                    title: AppStrings.text(context, 'health'),
                                     subtitle: data.bmi != null
-                                        ? 'BMI ${data.bmi!.toStringAsFixed(1)}'
-                                        : 'BMI not available',
+                                        ? '${AppStrings.text(context, 'bmi_label')} ${data.bmi!.toStringAsFixed(1)}'
+                                        : AppStrings.text(
+                                      context,
+                                      'bmi_not_available',
+                                    ),
                                     icon: Icons.favorite,
                                     iconColor: Colors.pink,
                                     onTap: () {
                                       Navigator.push(
                                         context,
                                         MaterialPageRoute(
-                                          builder: (_) =>
-                                          const BmiCalculatorPage(),
+                                          builder: (_) => const HealthPage(),
                                         ),
                                       );
                                     },
@@ -429,11 +444,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                 ),
                               ],
                             ),
-
                             const SizedBox(height: 18),
-
                             _infoCard(
-                              title: 'Training Load',
+                              title: AppStrings.text(context, 'training_load'),
                               icon: Icons.fitness_center,
                               iconColor: Colors.deepPurple,
                               child: Row(
@@ -452,9 +465,12 @@ class _DashboardPageState extends State<DashboardPage> {
                                           ),
                                         ),
                                         const SizedBox(height: 4),
-                                        const Text(
-                                          'Total workout minutes this week',
-                                          style: TextStyle(
+                                        Text(
+                                          AppStrings.text(
+                                            context,
+                                            'total_workout_minutes_this_week',
+                                          ),
+                                          style: const TextStyle(
                                             color: textSoft,
                                             fontSize: 12,
                                           ),
@@ -466,11 +482,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                 ],
                               ),
                             ),
-
                             const SizedBox(height: 14),
-
                             _infoCard(
-                              title: 'Goal Status',
+                              title: AppStrings.text(context, 'goal_status'),
                               icon: Icons.flag,
                               iconColor: Colors.green,
                               child: Column(
@@ -486,7 +500,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    '${data.activeGoals} active goals • ${data.completedGoals} completed',
+                                    '${data.activeGoals} ${AppStrings.text(context, 'active').toLowerCase()} • ${data.completedGoals} ${AppStrings.text(context, 'completed').toLowerCase()}',
                                     style: const TextStyle(
                                       color: textSoft,
                                       fontSize: 12,
@@ -506,11 +520,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                 ],
                               ),
                             ),
-
                             const SizedBox(height: 14),
-
                             _infoCard(
-                              title: 'Body Metrics',
+                              title: AppStrings.text(context, 'body_metrics'),
                               icon: Icons.monitor_weight_outlined,
                               iconColor: Colors.orange,
                               child: Row(
@@ -532,7 +544,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          _bmiCategory(data.bmi),
+                                          _bmiCategory(context, data.bmi),
                                           style: const TextStyle(
                                             color: textSoft,
                                             fontSize: 12,
@@ -545,7 +557,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
                                       Text(
-                                        'Height: ${data.heightCm?.toStringAsFixed(0) ?? '--'} cm',
+                                        '${AppStrings.text(context, 'height')}: ${data.heightCm?.toStringAsFixed(0) ?? '--'} cm',
                                         style: const TextStyle(
                                           color: textSoft,
                                           fontSize: 12,
@@ -553,7 +565,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                       ),
                                       const SizedBox(height: 6),
                                       Text(
-                                        'Weight: ${data.weightKg?.toStringAsFixed(0) ?? '--'} kg',
+                                        '${AppStrings.text(context, 'weight')}: ${data.weightKg?.toStringAsFixed(0) ?? '--'} kg',
                                         style: const TextStyle(
                                           color: textSoft,
                                           fontSize: 12,
@@ -564,11 +576,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                 ],
                               ),
                             ),
-
                             const SizedBox(height: 14),
-
                             _infoCard(
-                              title: 'Profile Snapshot',
+                              title: AppStrings.text(context, 'profile_snapshot'),
                               icon: Icons.person_outline,
                               iconColor: Colors.cyan,
                               child: Row(
@@ -579,7 +589,15 @@ class _DashboardPageState extends State<DashboardPage> {
                                       CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          data.gender ?? '--',
+                                          (data.gender?.toLowerCase() == 'male')
+                                              ? AppStrings.text(context, 'male')
+                                              : (data.gender?.toLowerCase() ==
+                                              'female')
+                                              ? AppStrings.text(
+                                            context,
+                                            'female',
+                                          )
+                                              : (data.gender ?? '--'),
                                           style: const TextStyle(
                                             color: textDark,
                                             fontSize: 24,
@@ -589,8 +607,11 @@ class _DashboardPageState extends State<DashboardPage> {
                                         const SizedBox(height: 4),
                                         Text(
                                           data.age != null
-                                              ? 'Age ${data.age}'
-                                              : 'Age not available',
+                                              ? '${AppStrings.text(context, 'age')} ${data.age}'
+                                              : AppStrings.text(
+                                            context,
+                                            'bmi_not_available',
+                                          ),
                                           style: const TextStyle(
                                             color: textSoft,
                                             fontSize: 12,
@@ -605,7 +626,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                       CrossAxisAlignment.end,
                                       children: [
                                         Text(
-                                          '${data.todayWorkoutCount} workouts today',
+                                          '${data.todayWorkoutCount} ${AppStrings.text(context, 'workouts')}',
                                           style: const TextStyle(
                                             color: textSoft,
                                             fontSize: 12,
@@ -613,7 +634,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                         ),
                                         const SizedBox(height: 6),
                                         Text(
-                                          '${data.todayCalories} kcal burned today',
+                                          '${data.todayCalories} kcal',
                                           style: const TextStyle(
                                             color: textSoft,
                                             fontSize: 12,
@@ -625,14 +646,12 @@ class _DashboardPageState extends State<DashboardPage> {
                                 ],
                               ),
                             ),
-
                             const SizedBox(height: 24),
                           ],
                         ),
                       ),
                     ),
                   ),
-
                   Container(
                     margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                     padding: const EdgeInsets.symmetric(vertical: 10),
@@ -650,10 +669,26 @@ class _DashboardPageState extends State<DashboardPage> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        _bottomNavItem(Icons.home_rounded, 'Home', 0),
-                        _bottomNavItem(Icons.fitness_center, 'Workout', 1),
-                        _bottomNavItem(Icons.flag, 'Goals', 2),
-                        _bottomNavItem(Icons.person_outline, 'Profile', 3),
+                        _bottomNavItem(
+                          Icons.home_rounded,
+                          AppStrings.text(context, 'dashboard'),
+                          0,
+                        ),
+                        _bottomNavItem(
+                          Icons.fitness_center,
+                          'Workout',
+                          1,
+                        ),
+                        _bottomNavItem(
+                          Icons.flag,
+                          AppStrings.text(context, 'goals'),
+                          2,
+                        ),
+                        _bottomNavItem(
+                          Icons.person_outline,
+                          AppStrings.text(context, 'profile'),
+                          3,
+                        ),
                       ],
                     ),
                   ),
@@ -666,7 +701,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildMainSummary(DashboardData data) {
+  Widget _buildMainSummary(BuildContext context, DashboardData data) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -676,7 +711,7 @@ class _DashboardPageState extends State<DashboardPage> {
             icon: Icons.fitness_center,
             iconColor: Colors.green,
             value: '${data.todayWorkoutCount}',
-            label: 'workouts',
+            label: AppStrings.text(context, 'workouts'),
           ),
           Stack(
             alignment: Alignment.center,
@@ -725,7 +760,7 @@ class _DashboardPageState extends State<DashboardPage> {
             icon: Icons.timer_outlined,
             iconColor: Colors.pink,
             value: '${data.todayMinutes}',
-            label: 'min',
+            label: AppStrings.text(context, 'minutes_short'),
           ),
         ],
       ),
@@ -890,7 +925,8 @@ class _DashboardPageState extends State<DashboardPage> {
       children: List.generate(days.length, (index) {
         final rawHeight = weeklyDurations[index];
         final normalizedHeight = (rawHeight / maxValue) * 30;
-        final barHeight = rawHeight == 0 ? 6.0 : normalizedHeight.clamp(6.0, 30.0);
+        final barHeight =
+        rawHeight == 0 ? 6.0 : normalizedHeight.clamp(6.0, 30.0);
 
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
