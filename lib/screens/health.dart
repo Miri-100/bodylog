@@ -1,628 +1,637 @@
+import 'package:bodylog/services/app_strings.dart';
+import 'package:bodylog/services/profile_service.dart';
 import 'package:flutter/material.dart';
 
-class BmiCalculatorPage extends StatefulWidget {
-  const BmiCalculatorPage({super.key});
+class HealthPage extends StatefulWidget {
+  const HealthPage({super.key});
 
   @override
-  State<BmiCalculatorPage> createState() => _BmiCalculatorPageState();
+  State<HealthPage> createState() => _HealthPageState();
 }
 
-class _BmiCalculatorPageState extends State<BmiCalculatorPage> {
-  final TextEditingController _weightController = TextEditingController();
-  final TextEditingController _heightController = TextEditingController();
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+class _HealthPageState extends State<HealthPage> {
+  final ProfileService _profileService = ProfileService();
+
+  final _ageController = TextEditingController();
+  final _heightController = TextEditingController();
+  final _weightController = TextEditingController();
+
+  String _username = '';
+  String? _fullName;
+  String _gender = 'Male';
+  String _activityLevel = 'Moderately Active';
+
+  bool _isLoading = true;
+  bool _isSaving = false;
 
   double? _bmi;
-  String _category = '';
-  Color _categoryColor = Colors.grey;
+  String _bmiCategory = 'Not enough data';
+  double? _bmr;
+  double? _dailyCalories;
+
+  final Map<String, double> _activityMultipliers = {
+    'Sedentary': 1.2,
+    'Lightly Active': 1.375,
+    'Moderately Active': 1.55,
+    'Very Active': 1.725,
+  };
 
   @override
-  void dispose() {
-    _weightController.dispose();
-    _heightController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _loadProfileData();
   }
 
-  /// Get color based on BMI category
-  void _setColorForCategory(String category) {
-    switch (category) {
-      case 'Underweight':
-        _categoryColor = Colors.blue;
-        break;
-      case 'Normal':
-        _categoryColor = Colors.green;
-        break;
-      case 'Overweight':
-        _categoryColor = Colors.orange;
-        break;
-      case 'Obese':
-        _categoryColor = Colors.red;
-        break;
-      default:
-        _categoryColor = Colors.grey;
-    }
-  }
+  Future<void> _loadProfileData() async {
+    try {
+      final profile = await _profileService.getProfile();
 
-  void _calculateBmi() {
-    if (_formKey.currentState!.validate()) {
-      final weight = double.parse(_weightController.text.trim());
-      final heightCm = double.parse(_heightController.text.trim());
+      if (profile != null) {
+        _username = profile['username'] ?? '';
+        _fullName = profile['full_name'];
 
-      final heightM = heightCm / 100;
-      final bmi = weight / (heightM * heightM);
+        _ageController.text = profile['age']?.toString() ?? '';
+        _heightController.text = profile['height_cm']?.toString() ?? '';
+        _weightController.text = profile['weight_kg']?.toString() ?? '';
 
-      String category;
-      if (bmi < 18.5) {
-        category = 'Underweight';
-      } else if (bmi < 25) {
-        category = 'Normal';
-      } else if (bmi < 30) {
-        category = 'Overweight';
-      } else {
-        category = 'Obese';
+        final gender = (profile['gender'] ?? '').toString().trim();
+        if (gender.isNotEmpty) {
+          _gender = gender[0].toUpperCase() + gender.substring(1).toLowerCase();
+        }
       }
 
-      _setColorForCategory(category);
-
-      setState(() {
-        _bmi = bmi;
-        _category = category;
-      });
+      _calculateHealthData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${AppStrings.text(context, 'failed_to_load_profile')}: $e',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  void _clearFields() {
-    _weightController.clear();
-    _heightController.clear();
+  void _calculateHealthData() {
+    final age = int.tryParse(_ageController.text.trim());
+    final heightCm = double.tryParse(_heightController.text.trim());
+    final weightKg = double.tryParse(_weightController.text.trim());
+
+    double? bmi;
+    String bmiCategory = AppStrings.text(context, 'not_enough_data');
+    double? bmr;
+    double? dailyCalories;
+
+    if (heightCm != null && weightKg != null && heightCm > 0 && weightKg > 0) {
+      final heightM = heightCm / 100;
+      bmi = weightKg / (heightM * heightM);
+
+      if (bmi < 18.5) {
+        bmiCategory = AppStrings.text(context, 'underweight');
+      } else if (bmi < 25) {
+        bmiCategory = AppStrings.text(context, 'normal');
+      } else if (bmi < 30) {
+        bmiCategory = AppStrings.text(context, 'overweight');
+      } else {
+        bmiCategory = AppStrings.text(context, 'obese');
+      }
+    }
+
+    if (age != null &&
+        heightCm != null &&
+        weightKg != null &&
+        age > 0 &&
+        heightCm > 0 &&
+        weightKg > 0) {
+      if (_gender.toLowerCase() == 'male') {
+        bmr = (10 * weightKg) + (6.25 * heightCm) - (5 * age) + 5;
+      } else {
+        bmr = (10 * weightKg) + (6.25 * heightCm) - (5 * age) - 161;
+      }
+
+      final multiplier = _activityMultipliers[_activityLevel] ?? 1.55;
+      dailyCalories = bmr * multiplier;
+    }
+
     setState(() {
-      _bmi = null;
-      _category = '';
-      _categoryColor = Colors.grey;
+      _bmi = bmi;
+      _bmiCategory = bmiCategory;
+      _bmr = bmr;
+      _dailyCalories = dailyCalories;
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('BMI Calculator'),
-        backgroundColor: Colors.deepPurple,
+  Future<void> _saveHealthProfileData() async {
+    setState(() => _isSaving = true);
+
+    try {
+      await _profileService.updateProfile(
+        username: _username,
+        fullName: _fullName,
+        age: _ageController.text.trim().isEmpty
+            ? null
+            : int.tryParse(_ageController.text.trim()),
+        gender: _gender,
+        heightCm: _heightController.text.trim().isEmpty
+            ? null
+            : double.tryParse(_heightController.text.trim()),
+        weightKg: _weightController.text.trim().isEmpty
+            ? null
+            : double.tryParse(_weightController.text.trim()),
+      );
+
+      _calculateHealthData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppStrings.text(context, 'profile_data_updated_successfully'),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${AppStrings.text(context, 'failed_to_update_profile_data')}: $e',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  String _healthTip() {
+    if (_bmi == null || _dailyCalories == null) {
+      return AppStrings.text(context, 'health_tip_missing');
+    }
+
+    if (_bmi! < 18.5) {
+      return AppStrings.text(context, 'health_tip_underweight');
+    } else if (_bmi! < 25) {
+      return AppStrings.text(context, 'health_tip_normal');
+    } else if (_bmi! < 30) {
+      return AppStrings.text(context, 'health_tip_overweight');
+    } else {
+      return AppStrings.text(context, 'health_tip_obese');
+    }
+  }
+
+  InputDecoration _inputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon),
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(18),
-        child: ListView(
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
+      ),
+    );
+  }
+
+  BoxDecoration _cardDecoration() {
+    return BoxDecoration(
+      color: Colors.white.withOpacity(0.96),
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.08),
+          blurRadius: 12,
+          offset: const Offset(0, 4),
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryStat(String title, String value, String subtitle) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.deepPurple.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
           children: [
-            Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'BMI Calculator',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-                    Form(
-                      key: _formKey,
-                      child: Column(
-                        children: [
-                          TextFormField(
-                            controller: _weightController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Weight (kg)',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.monitor_weight),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Weight is required';
-                              }
-                              if (double.tryParse(value) == null) {
-                                return 'Enter a valid number';
-                              }
-                              if (double.parse(value) <= 0) {
-                                return 'Weight must be greater than 0';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 14),
-                          TextFormField(
-                            controller: _heightController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Height (cm)',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.height),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Height is required';
-                              }
-                              if (double.tryParse(value) == null) {
-                                return 'Enter a valid number';
-                              }
-                              if (double.parse(value) <= 0) {
-                                return 'Height must be greater than 0';
-                              }
-                              return null;
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _calculateBmi,
-                            icon: const Icon(Icons.calculate),
-                            label: const Text('Calculate'),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              backgroundColor: Colors.deepPurple,
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _clearFields,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Clear'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.black54,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 22),
-            if (_bmi != null)
-              Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    gradient: LinearGradient(
-                      colors: [_categoryColor.withOpacity(0.2), _categoryColor.withOpacity(0.1)],
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'Your BMI',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _bmi!.toStringAsFixed(1),
-                          style: TextStyle(
-                            fontSize: 48,
-                            fontWeight: FontWeight.bold,
-                            color: _categoryColor,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _categoryColor,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            _category,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        _getBmiInfo(_category),
-                      ],
-                    ),
-                  ),
-                ),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.deepPurple,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
               ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.black54,
+                fontSize: 11,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _getBmiInfo(String category) {
-    final info = {
-      'Underweight': 'BMI < 18.5 - Try to gain weight healthily',
-      'Normal': 'BMI 18.5 - 24.9 - Keep up the healthy lifestyle',
-      'Overweight': 'BMI 25.0 - 29.9 - Consider a fitness routine',
-      'Obese': 'BMI ≥ 30 - Consult with a healthcare provider',
-    };
+  @override
+  Widget build(BuildContext context) {
+    const topColor = Color(0xFF667EEA);
+    const bottomColor = Color(0xFF764BA2);
 
-    return Text(
-      info[category] ?? '',
-      textAlign: TextAlign.center,
-      style: const TextStyle(
-        fontSize: 14,
-        color: Colors.grey,
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(AppStrings.text(context, 'health_tracking')),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.white,
+      ),
+      extendBodyBehindAppBar: true,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              topColor,
+              bottomColor,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: _isLoading
+              ? const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          )
+              : SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  AppStrings.text(context, 'your_health_summary'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  AppStrings.text(context, 'health_summary_subtitle'),
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 18),
+
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: _cardDecoration(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        AppStrings.text(context, 'health_overview'),
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          _summaryStat(
+                            AppStrings.text(context, 'bmi_label'),
+                            _bmi != null ? _bmi!.toStringAsFixed(1) : '--',
+                            _bmiCategory,
+                          ),
+                          const SizedBox(width: 10),
+                          _summaryStat(
+                            AppStrings.text(context, 'daily_calories'),
+                            _dailyCalories != null
+                                ? _dailyCalories!.round().toString()
+                                : '--',
+                            'kcal/day',
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: _cardDecoration(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.monitor_weight_outlined,
+                              color: Colors.deepPurple),
+                          const SizedBox(width: 8),
+                          Text(
+                            AppStrings.text(context, 'bmi_calculator'),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _heightController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: _inputDecoration(
+                          AppStrings.text(context, 'height_cm'),
+                          Icons.height,
+                        ),
+                        onChanged: (_) => _calculateHealthData(),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _weightController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: _inputDecoration(
+                          AppStrings.text(context, 'weight_kg'),
+                          Icons.monitor_weight,
+                        ),
+                        onChanged: (_) => _calculateHealthData(),
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.deepPurple.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${AppStrings.text(context, 'bmi_label')}: ${_bmi != null ? _bmi!.toStringAsFixed(1) : '--'}',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.deepPurple,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${AppStrings.text(context, 'category')}: $_bmiCategory',
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: _cardDecoration(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.local_fire_department_outlined,
+                              color: Colors.deepPurple),
+                          const SizedBox(width: 8),
+                          Text(
+                            AppStrings.text(context, 'calories_calculator'),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _ageController,
+                        keyboardType: TextInputType.number,
+                        decoration: _inputDecoration(
+                          AppStrings.text(context, 'age'),
+                          Icons.calendar_today,
+                        ),
+                        onChanged: (_) => _calculateHealthData(),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _gender,
+                        decoration: _inputDecoration(
+                          AppStrings.text(context, 'gender'),
+                          Icons.wc_outlined,
+                        ),
+                        items: [
+                          DropdownMenuItem(
+                            value: 'Male',
+                            child: Text(AppStrings.text(context, 'male')),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Female',
+                            child: Text(AppStrings.text(context, 'female')),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _gender = value);
+                            _calculateHealthData();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _activityLevel,
+                        decoration: _inputDecoration(
+                          AppStrings.text(context, 'activity_level'),
+                          Icons.directions_run,
+                        ),
+                        items: [
+                          DropdownMenuItem(
+                            value: 'Sedentary',
+                            child: Text(
+                                AppStrings.text(context, 'sedentary')),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Lightly Active',
+                            child: Text(AppStrings.text(
+                                context, 'lightly_active')),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Moderately Active',
+                            child: Text(AppStrings.text(
+                                context, 'moderately_active')),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Very Active',
+                            child: Text(
+                                AppStrings.text(context, 'very_active')),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _activityLevel = value);
+                            _calculateHealthData();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.deepPurple.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${AppStrings.text(context, 'bmr')}: ${_bmr != null ? _bmr!.round() : '--'} kcal',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.deepPurple,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '${AppStrings.text(context, 'estimated_daily_calories')}: ${_dailyCalories != null ? _dailyCalories!.round() : '--'} kcal',
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: _cardDecoration(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.tips_and_updates_outlined,
+                              color: Colors.deepPurple),
+                          const SizedBox(width: 8),
+                          Text(
+                            AppStrings.text(context, 'health_tips'),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        _healthTip(),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: _isSaving ? null : _saveHealthProfileData,
+                    icon: _isSaving
+                        ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                        : const Icon(Icons.save_outlined),
+                    label: Text(
+                      _isSaving
+                          ? 'Saving...'
+                          : AppStrings.text(context, 'update_profile_data'),
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: const Color(0xFF764BA2),
+                      elevation: 3,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
-}
-
-class CaloriesCalculatorPage extends StatefulWidget {
-  const CaloriesCalculatorPage({super.key});
-
-  @override
-  State<CaloriesCalculatorPage> createState() => _CaloriesCalculatorPageState();
-}
-
-class _CaloriesCalculatorPageState extends State<CaloriesCalculatorPage> {
-  final TextEditingController _ageController = TextEditingController();
-  final TextEditingController _weightController = TextEditingController();
-  final TextEditingController _heightController = TextEditingController();
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-
-  String _gender = 'Male';
-  String _activityLevel = 'Moderate';
-  double? _calories;
-
-  final Map<String, double> _activityFactors = {
-    'Sedentary': 1.2,
-    'Light': 1.375,
-    'Moderate': 1.55,
-    'Active': 1.725,
-    'Very Active': 1.9,
-  };
-
-  final Map<String, String> _activityDescriptions = {
-    'Sedentary': 'Little or no exercise',
-    'Light': 'Exercise 1-3 days/week',
-    'Moderate': 'Exercise 3-5 days/week',
-    'Active': 'Exercise 6-7 days/week',
-    'Very Active': 'Intense exercise daily',
-  };
 
   @override
   void dispose() {
     _ageController.dispose();
-    _weightController.dispose();
     _heightController.dispose();
+    _weightController.dispose();
     super.dispose();
-  }
-
-  void _calculateCalories() {
-    if (_formKey.currentState!.validate()) {
-      final age = int.parse(_ageController.text.trim());
-      final weight = double.parse(_weightController.text.trim());
-      final height = double.parse(_heightController.text.trim());
-
-      double bmr;
-      if (_gender == 'Male') {
-        bmr = (10 * weight) + (6.25 * height) - (5 * age) + 5;
-      } else {
-        bmr = (10 * weight) + (6.25 * height) - (5 * age) - 161;
-      }
-
-      setState(() {
-        _calories = bmr * _activityFactors[_activityLevel]!;
-      });
-    }
-  }
-
-  void _clearFields() {
-    _ageController.clear();
-    _weightController.clear();
-    _heightController.clear();
-    setState(() {
-      _gender = 'Male';
-      _activityLevel = 'Moderate';
-      _calories = null;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Daily Calories Calculator'),
-        backgroundColor: Colors.deepPurple,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(18),
-        child: ListView(
-          children: [
-            Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Calories Calculator',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-                    Form(
-                      key: _formKey,
-                      child: Column(
-                        children: [
-                          DropdownButtonFormField<String>(
-                            value: _gender,
-                            decoration: const InputDecoration(
-                              labelText: 'Gender',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: const [
-                              DropdownMenuItem(value: 'Male', child: Text('Male')),
-                              DropdownMenuItem(value: 'Female', child: Text('Female')),
-                            ],
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() => _gender = value);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 14),
-                          TextFormField(
-                            controller: _ageController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Age (years)',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.cake),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Age is required';
-                              }
-                              final age = int.tryParse(value);
-                              if (age == null || age <= 0 || age > 150) {
-                                return 'Enter a valid age';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 14),
-                          TextFormField(
-                            controller: _weightController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Weight (kg)',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.monitor_weight),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Weight is required';
-                              }
-                              if (double.tryParse(value) == null) {
-                                return 'Enter a valid number';
-                              }
-                              if (double.parse(value) <= 0) {
-                                return 'Weight must be greater than 0';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 14),
-                          TextFormField(
-                            controller: _heightController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Height (cm)',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.height),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Height is required';
-                              }
-                              if (double.tryParse(value) == null) {
-                                return 'Enter a valid number';
-                              }
-                              if (double.parse(value) <= 0) {
-                                return 'Height must be greater than 0';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 14),
-                          DropdownButtonFormField<String>(
-                            value: _activityLevel,
-                            decoration: const InputDecoration(
-                              labelText: 'Activity Level',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: _activityFactors.keys
-                                .map((level) => DropdownMenuItem(
-                              value: level,
-                              child: Text(level),
-                            ))
-                                .toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() => _activityLevel = value);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.deepPurple.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              _activityDescriptions[_activityLevel] ?? '',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _calculateCalories,
-                            icon: const Icon(Icons.calculate),
-                            label: const Text('Calculate'),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              backgroundColor: Colors.deepPurple,
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _clearFields,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Clear'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 22),
-            if (_calories != null)
-              Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.deepPurple.withOpacity(0.2),
-                        Colors.deepPurple.withOpacity(0.1)
-                      ],
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'Estimated Daily Calorie Needs',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          '${_calories!.toStringAsFixed(0)} kcal/day',
-                          style: const TextStyle(
-                            fontSize: 42,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.deepPurple,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Column(
-                            children: [
-                              const Text(
-                                'Daily Macronutrient Breakdown (Recommended)',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.blue,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  _buildMacroDisplay(
-                                    'Carbs',
-                                    '${((_calories! * 0.5) / 4).toStringAsFixed(0)}g',
-                                  ),
-                                  _buildMacroDisplay(
-                                    'Protein',
-                                    '${((_calories! * 0.25) / 4).toStringAsFixed(0)}g',
-                                  ),
-                                  _buildMacroDisplay(
-                                    'Fats',
-                                    '${((_calories! * 0.25) / 9).toStringAsFixed(0)}g',
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMacroDisplay(String label, String value) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.deepPurple,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
-          ),
-        ),
-      ],
-    );
   }
 }
