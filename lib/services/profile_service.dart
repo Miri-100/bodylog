@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProfileService {
@@ -18,6 +19,28 @@ class ProfileService {
     return data;
   }
 
+  Future<String> uploadAvatar({
+    required Uint8List bytes,
+    required String fileExt,
+  }) async {
+    final user = _user;
+    if (user == null) {
+      throw Exception('User not logged in');
+    }
+
+    final fileName =
+        'avatar_${user.id}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+    final filePath = 'users/${user.id}/$fileName';
+
+    await _client.storage.from('avatars').uploadBinary(
+      filePath,
+      bytes,
+      fileOptions: const FileOptions(upsert: true),
+    );
+
+    return _client.storage.from('avatars').getPublicUrl(filePath);
+  }
+
   Future<void> updateProfile({
     required String username,
     String? fullName,
@@ -25,6 +48,7 @@ class ProfileService {
     String? gender,
     double? heightCm,
     double? weightKg,
+    String? avatarUrl,
   }) async {
     final user = _user;
     if (user == null) {
@@ -38,6 +62,7 @@ class ProfileService {
       'gender': gender?.trim().isEmpty ?? true ? null : gender!.trim(),
       'height_cm': heightCm,
       'weight_kg': weightKg,
+      if (avatarUrl != null) 'avatar_url': avatarUrl,
       'updated_at': DateTime.now().toIso8601String(),
     }).eq('id', user.id);
   }
