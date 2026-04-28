@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:bodylog/models/timer_model.dart';
+import 'package:bodylog/services/timer_service.dart';
 
 class TimerPage extends StatefulWidget {
   const TimerPage({super.key});
