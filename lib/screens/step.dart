@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:bodylog/models/step_model.dart';
+import 'package:bodylog/services/step_service.dart';
 
 class StepsPage extends StatefulWidget {
   const StepsPage({super.key});
