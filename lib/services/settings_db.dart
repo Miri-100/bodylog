@@ -29,17 +29,13 @@ class SettingsDatabase {
       CREATE TABLE settings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         dark_mode INTEGER NOT NULL DEFAULT 0,
-        language TEXT NOT NULL DEFAULT 'English',
-        notifications INTEGER NOT NULL DEFAULT 1,
-        unit TEXT NOT NULL DEFAULT 'Metric'
+        language TEXT NOT NULL DEFAULT 'English'
       )
     ''');
 
     await db.insert('settings', {
       'dark_mode': 0,
       'language': 'English',
-      'notifications': 1,
-      'unit': 'Metric',
     });
   }
 
@@ -56,8 +52,6 @@ class SettingsDatabase {
   Future<void> updateSettings({
     required bool darkMode,
     required String language,
-    required bool notifications,
-    required String unit,
   }) async {
     final db = await instance.database;
 
@@ -66,8 +60,6 @@ class SettingsDatabase {
       {
         'dark_mode': darkMode ? 1 : 0,
         'language': language,
-        'notifications': notifications ? 1 : 0,
-        'unit': unit,
       },
       where: 'id = ?',
       whereArgs: [1],
