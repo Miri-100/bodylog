@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:bodylog/models/workout_model.dart';
+import 'package:bodylog/services/workout_service.dart';
 
 class WorkoutsPage extends StatefulWidget {
   const WorkoutsPage({super.key});
