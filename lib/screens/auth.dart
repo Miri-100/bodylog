@@ -1,4 +1,7 @@
+import 'package:bodylog/screens/admin_auth.dart';
+import 'package:bodylog/screens/admin_dashboard.dart';
 import 'package:bodylog/services/auth_service.dart';
+import 'package:bodylog/screens/dashboard.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -35,9 +38,18 @@ class _AuthScreenState extends State<AuthScreen> {
         );
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Login successful')),
-          );
+          final isAdmin = await _authService.isUserAdmin();
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Login successful')),
+            );
+
+            Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => isAdmin ? const AdminDashboardPage() : const DashboardPage()),
+              (route) => false,
+            );
+          }
         }
       } else {
         await _authService.signUp(
@@ -50,6 +62,15 @@ class _AuthScreenState extends State<AuthScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Registration successful')),
           );
+
+          final isAdminCheck = await _authService.isUserAdmin();
+
+          if (mounted) {
+            Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => isAdminCheck ? const AdminDashboardPage() : const DashboardPage()),
+              (route) => false,
+            );
+          }
         }
       }
     } on AuthException catch (e) {
@@ -194,7 +215,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         return null;
                       },
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 32),
 
                     SizedBox(
                       width: double.infinity,
@@ -239,6 +260,20 @@ class _AuthScreenState extends State<AuthScreen> {
                             ? "Don't have an account? Sign Up"
                             : 'Already have an account? Log In',
                       ),
+                    ),
+
+                    const SizedBox(height: 8),
+                    const Divider(),
+                    const SizedBox(height: 8),
+
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(builder: (_) => const AdminAuthScreen()),
+                        );
+                      },
+                      style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                      child: const Text('Admin Access Area'),
                     ),
                   ],
                 ),
